@@ -2,8 +2,13 @@
 const fs = require('fs');
 const path = require('path');
 const { extractPdfContent, processLabSheet } = require('../services/pdf-extraction');
+const { 
+  extractKeyConcepts, 
+  chunkIntoLearningGoals, 
+  generateLearningPath 
+} = require('../services/ai-analysis');
 const LabSheet = require('../models/LabSheet');
-
+const LearningGoal = require('../models/LearningGoal');
 /**
  * Upload and process a lab sheet
  * @param {object} req - Express request object
@@ -123,8 +128,117 @@ const getLabSheetById = async (req, res) => {
   }
 };
 
-module.exports = {
-  uploadLabSheet,
-  getAllLabSheets,
-  getLabSheetById
-};
+/**
+ * Analyze a lab sheet and generate learning content
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+const analyzeLabSheet = async (req, res) => {
+    try {
+      const labSheetId = req.params.id;
+      const labSheet = await LabSheet.findById(labSheetId);
+      
+      if (!labSheet) {
+        return res.status(404).json({ message: 'Lab sheet not found' });
+      }
+      
+      // Extract key concepts
+      const concepts = await extractKeyConcepts(labSheet.originalText);
+      
+      // Chunk into learning goals
+      const learningGoals = await chunkIntoLearningGoals(labSheet);
+      
+      // Store and generate learning paths for each goal
+      const createdGoals = [];
+      
+      for (let i = 0; i < learningGoals.length; i++) {
+        const goal = learningGoals[i];
+        
+        // Generate detailed learning path
+        const fullGoal = await generateLearningPath(goal, labSheet);
+        
+        // Save to database
+        const learningGoal = new LearningGoal({
+          labSheetId: labSheet._id,
+          title: fullGoal.title,
+          keyConcepts: fullGoal.keyConcepts,
+          exercises: fullGoal.exercises,
+          prerequisites: fullGoal.prerequisites || [],
+          learningPath: fullGoal.learningPath,
+          order: i
+        });
+        
+        await learningGoal.save();
+        createdGoals.push(learningGoal);
+      }
+      
+      // Update lab sheet with concepts
+      labSheet.concepts = concepts;
+      await labSheet.save();
+      
+      res.status(200).json({
+        message: 'Lab sheet analyzed successfully',
+        concepts,
+        learningGoals: createdGoals.map(goal => ({
+          id: goal._id,
+          title: goal.title,
+          keyConcepts: goal.keyConcepts
+        }))
+      });
+    } catch (error) {
+      console.error('Error analyzing lab sheet:', error);
+      res.status(500).json({ message: 'Failed to analyze lab sheet', error: error.message });
+    }
+  };
+  
+  /**
+   * Get learning goals for a lab sheet
+   * @param {object} req - Express request object
+   * @param {object} res - Express response object
+   */
+  const getLabSheetLearningGoals = async (req, res) => {
+    try {
+      const labSheetId = req.params.id;
+      const goals = await LearningGoal.find({ labSheetId }).sort('order');
+      
+      if (!goals || goals.length === 0) {
+        return res.status(404).json({ message: 'No learning goals found for this lab sheet' });
+      }
+      
+      res.status(200).json(goals);
+    } catch (error) {
+      console.error('Error retrieving learning goals:', error);
+      res.status(500).json({ message: 'Failed to retrieve learning goals', error: error.message });
+    }
+  };
+  
+  /**
+   * Get a specific learning goal
+   * @param {object} req - Express request object
+   * @param {object} res - Express response object
+   */
+  const getLearningGoal = async (req, res) => {
+    try {
+      const goalId = req.params.goalId;
+      const goal = await LearningGoal.findById(goalId);
+      
+      if (!goal) {
+        return res.status(404).json({ message: 'Learning goal not found' });
+      }
+      
+      res.status(200).json(goal);
+    } catch (error) {
+      console.error('Error retrieving learning goal:', error);
+      res.status(500).json({ message: 'Failed to retrieve learning goal', error: error.message });
+    }
+  };
+
+  module.exports = {
+    uploadLabSheet,
+    getAllLabSheets,
+    getLabSheetById,
+    analyzeLabSheet,
+    getLabSheetLearningGoals,
+    getLearningGoal
+  };
+  
