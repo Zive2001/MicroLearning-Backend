@@ -145,6 +145,13 @@ const analyzeLabSheet = async (req, res) => {
       // Extract key concepts
       const concepts = await extractKeyConcepts(labSheet.originalText);
       
+      // Store key concepts in the lab sheet
+      labSheet.concepts = concepts;
+      await labSheet.save();
+      
+      // Delete any existing learning goals for this lab sheet to avoid duplication
+      await LearningGoal.deleteMany({ labSheetId: labSheet._id });
+      
       // Chunk into learning goals
       const learningGoals = await chunkIntoLearningGoals(labSheet);
       
@@ -161,8 +168,8 @@ const analyzeLabSheet = async (req, res) => {
         const learningGoal = new LearningGoal({
           labSheetId: labSheet._id,
           title: fullGoal.title,
-          keyConcepts: fullGoal.keyConcepts,
-          exercises: fullGoal.exercises,
+          keyConcepts: fullGoal.keyConcepts || [],
+          exercises: fullGoal.exercises || [],
           prerequisites: fullGoal.prerequisites || [],
           learningPath: fullGoal.learningPath,
           order: i
@@ -171,10 +178,6 @@ const analyzeLabSheet = async (req, res) => {
         await learningGoal.save();
         createdGoals.push(learningGoal);
       }
-      
-      // Update lab sheet with concepts
-      labSheet.concepts = concepts;
-      await labSheet.save();
       
       res.status(200).json({
         message: 'Lab sheet analyzed successfully',
@@ -187,7 +190,11 @@ const analyzeLabSheet = async (req, res) => {
       });
     } catch (error) {
       console.error('Error analyzing lab sheet:', error);
-      res.status(500).json({ message: 'Failed to analyze lab sheet', error: error.message });
+      res.status(500).json({ 
+        message: 'Failed to analyze lab sheet', 
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   };
   
