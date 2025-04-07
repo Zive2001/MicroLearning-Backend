@@ -37,18 +37,47 @@ const processLabSheet = (pdfData) => {
   const labSheetNumber = labSheetMatch ? labSheetMatch[1] : 'Unknown';
   
   // Extract topic/title
-  const titleMatch = text.match(/Writing\s+Member\s+Methods|Create\s+and\s+Query\s+Object\s+Relational\s+Tables/i);
-  const title = titleMatch ? titleMatch[0] : 'Unknown';
+  let title = 'Unknown';
+  const titleMatches = [
+    /Create\s+and\s+Query\s+Object\s+Relational\s+Tables/i,
+    /Writing\s+Member\s+Methods/i,
+    /Database\s+Systems/i
+  ];
   
-  // Extract exercises and their descriptions
+  for (const pattern of titleMatches) {
+    const match = text.match(pattern);
+    if (match) {
+      title = match[0];
+      break;
+    }
+  }
+  
+  // Extract exercises using a more robust pattern
+  // Looking for numbered sections like "1." followed by text
   const exercises = [];
-  const exerciseMatches = text.match(/\d+\.\s+[A-Z][^0-9]+/g);
+  const mainExerciseRegex = /(\d+)\.\s+([\s\S]+?)(?=\d+\.\s+|$)/g;
+  let mainMatch;
   
-  if (exerciseMatches) {
-    exerciseMatches.forEach(exercise => {
-      // Clean up the exercise text
-      const cleanExercise = exercise.trim();
-      exercises.push(cleanExercise);
+  while ((mainMatch = mainExerciseRegex.exec(text)) !== null) {
+    const exerciseNum = mainMatch[1];
+    const exerciseContent = mainMatch[2].trim();
+    
+    // Look for sub-exercises (a), (b), etc.
+    const subExercises = [];
+    const subExerciseRegex = /\(([a-z])\)\s+([\s\S]+?)(?=\([a-z]\)\s+|$)/g;
+    let subMatch;
+    
+    while ((subMatch = subExerciseRegex.exec(exerciseContent)) !== null) {
+      subExercises.push({
+        letter: subMatch[1],
+        description: subMatch[2].trim()
+      });
+    }
+    
+    exercises.push({
+      number: exerciseNum,
+      description: exerciseContent.split(/\([a-z]\)/)[0].trim(),
+      subExercises
     });
   }
   
