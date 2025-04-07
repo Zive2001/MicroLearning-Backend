@@ -1,8 +1,10 @@
+// index.js
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const connectDB = require("./dbConfig/db");
+const connectDB = require("./config/db");
 const labSheetRoutes = require('./routes/labSheetRoutes');
+const sqlPlaygroundRoutes = require('./routes/sqlPlaygroundRoutes');
 const path = require('path');
 
 // Initialize Express App
@@ -18,6 +20,7 @@ connectDB();
 
 // Routes
 app.use('/api/lab-sheets', labSheetRoutes);
+app.use('/api/sql-playground', sqlPlaygroundRoutes);
 
 // Sample Route
 app.get("/", (req, res) => {
