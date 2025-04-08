@@ -299,45 +299,63 @@ const resetEnvironment = async (sessionId, setupScripts = []) => {
  * @param {string} script - Oracle SQL script
  * @returns {Array<string>} - Individual statements
  */
+// In services/sql-execution.js
 const splitOracleStatements = (script) => {
+  // First, properly format the script by ensuring comments are properly marked
+  let cleanScript = script.replace(/^([A-Za-z].+)/gm, (match) => {
+    if (match.trim().startsWith('--')) return match;
+    if (match.trim().startsWith('/')) return match;
+    if (match.trim().startsWith('*')) return match;
+    return `-- ${match}`; // Convert unmarked comments to proper SQL comments
+  });
+  
   const statements = [];
   let currentStatement = '';
-  let inString = false;
   let inPLSQL = false;
-  let stringChar = '';
+  let slashPending = false;
   
-  const lines = script.split('\n');
+  const lines = cleanScript.split('\n');
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     
-    // Skip empty lines and comments
-    if (!line || line.startsWith('--')) continue;
+    // Skip empty lines
+    if (!line) continue;
+    
+    // Handle slash as statement terminator (for PL/SQL blocks)
+    if (line === '/' && slashPending) {
+      statements.push(currentStatement.trim());
+      currentStatement = '';
+      slashPending = false;
+      inPLSQL = false;
+      continue;
+    }
     
     // Check for PL/SQL blocks
-    if (line.toUpperCase().startsWith('BEGIN') || 
+    if (!inPLSQL && (
+        line.toUpperCase().startsWith('BEGIN') || 
         line.toUpperCase().startsWith('DECLARE') ||
-        line.toUpperCase().match(/^\s*CREATE\s+(OR\s+REPLACE\s+)?(PROCEDURE|FUNCTION|TRIGGER|PACKAGE)/i)) {
+        line.toUpperCase().match(/^\s*CREATE\s+(OR\s+REPLACE\s+)?(PROCEDURE|FUNCTION|TRIGGER|PACKAGE|TYPE)/i))) {
       inPLSQL = true;
     }
     
     // Add line to current statement
-    currentStatement += line + '\n';
+    if (line !== '/') { // Don't include the slash in the statement
+      currentStatement += line + '\n';
+    }
     
     // Check for statement end
-    if (inPLSQL) {
-      // PL/SQL blocks end with / on a line by itself or END; followed by /
-      if (line === '/' || line.toUpperCase().match(/END\s*;?\s*\/$/)) {
-        statements.push(currentStatement.trim());
-        currentStatement = '';
-        inPLSQL = false;
-      }
-    } else {
-      // Regular SQL statements end with semicolon
-      if (line.endsWith(';')) {
+    if (line === '/') {
+      if (currentStatement.trim()) {
         statements.push(currentStatement.trim());
         currentStatement = '';
       }
+      inPLSQL = false;
+    } else if (!inPLSQL && line.endsWith(';')) {
+      statements.push(currentStatement.trim());
+      currentStatement = '';
+    } else if (inPLSQL && line.toUpperCase().endsWith('END;')) {
+      slashPending = true;
     }
   }
   
@@ -346,7 +364,13 @@ const splitOracleStatements = (script) => {
     statements.push(currentStatement.trim());
   }
   
-  return statements;
+  return statements.filter(stmt => {
+    // Remove statements that are just comments
+    const nonCommentLines = stmt.split('\n')
+      .filter(line => !line.trim().startsWith('--'))
+      .filter(line => line.trim());
+    return nonCommentLines.length > 0;
+  });
 };
 
 module.exports = {
