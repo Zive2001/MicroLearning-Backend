@@ -1,8 +1,8 @@
 // controllers/gameController.js
 const GameMission = require('../models/GameMission');
 const PlayerProfile = require('../models/PlayerProfile');
+const LearningGoal = require('../models/LearningGoal');
 const { executeQuery } = require('../services/sql-execution');
-const { generateMissionsFromLearningGoals } = require('../services/mission-generator');
 
 /**
  * Generate missions for a lab sheet
@@ -11,8 +11,41 @@ const generateMissions = async (req, res) => {
   try {
     const { labSheetId } = req.params;
     
-    // Generate missions
-    const missions = await generateMissionsFromLearningGoals(labSheetId);
+    // Get learning goals
+    const learningGoals = await LearningGoal.find({ labSheetId });
+    
+    if (!learningGoals || learningGoals.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No learning goals found for this lab sheet'
+      });
+    }
+    
+    // Clear any existing missions for this lab sheet
+    await GameMission.deleteMany({
+      learningGoalId: { $in: learningGoals.map(goal => goal._id) }
+    });
+    
+    // Generate missions for each learning goal
+    const missions = [];
+    
+    for (let i = 0; i < learningGoals.length; i++) {
+      const goal = learningGoals[i];
+      
+      // Create mission with basic info
+      const mission = new GameMission({
+        learningGoalId: goal._id,
+        title: `Mission ${i+1}: ${goal.title.substring(0, 30)}...`,
+        narrative: generateMissionNarrative(goal),
+        difficulty: getDifficultyFromGoal(goal),
+        objectives: generateObjectives(goal),
+        totalXP: 350, // Default XP value
+        unlockedAt: Date.now()
+      });
+      
+      await mission.save();
+      missions.push(mission);
+    }
     
     res.status(200).json({
       success: true,
@@ -35,12 +68,74 @@ const generateMissions = async (req, res) => {
 };
 
 /**
+ * Generate a mission narrative
+ */
+const generateMissionNarrative = (goal) => {
+  const concepts = goal.keyConcepts.join(', ');
+  return `[TERMINAL ACCESS: GRANTED]
+  
+MISSION BRIEF: SYNTAX Corp Security Breach
+  
+Your objective: Infiltrate the database system using ${concepts}.
+  
+The system uses Oracle database architecture. Craft your SQL queries carefully - each error creates system alerts!
+  
+Good luck, agent. The data center awaits.`;
+};
+
+/**
+ * Get difficulty from goal type
+ */
+const getDifficultyFromGoal = (goal) => {
+  const title = goal.title.toLowerCase();
+  if (title.includes('advanced')) return 'master';
+  if (title.includes('query')) return 'agent';
+  return 'rookie';
+};
+
+/**
+ * Generate objectives from learning goal
+ */
+const generateObjectives = (goal) => {
+  const objectives = [];
+  
+  if (goal.learningPath && goal.learningPath.practice) {
+    objectives.push({
+      title: "Primary Objective",
+      description: goal.learningPath.practice.replace(/#|Practice Exercise|Hint:.+$/g, '').trim(),
+      xpReward: 150,
+      hints: ["Try using the example from the learning materials", "Focus on the syntax"]
+    });
+  }
+  
+  if (goal.learningPath && goal.learningPath.challenge) {
+    objectives.push({
+      title: "Bonus Objective",
+      description: goal.learningPath.challenge.replace(/#|Challenge|This will test.+$/g, '').trim(),
+      xpReward: 200,
+      hints: ["This is more advanced", "Think about how to extend the basic solution"]
+    });
+  }
+  
+  // Ensure we have at least one objective
+  if (objectives.length === 0) {
+    objectives.push({
+      title: "Database Objective",
+      description: "Complete the tasks related to this learning goal.",
+      xpReward: 100,
+      hints: ["Review the examples in the learning materials"]
+    });
+  }
+  
+  return objectives;
+};
+
+/**
  * Get mission details
  */
 const getMissionDetails = async (req, res) => {
   try {
     const { missionId } = req.params;
-    const userId = req.userId || 'anonymous';
     
     // Get mission
     const mission = await GameMission.findById(missionId);
@@ -52,19 +147,16 @@ const getMissionDetails = async (req, res) => {
       });
     }
     
-    // Get or create player profile
-    let playerProfile = await PlayerProfile.findOne({ userId });
+    // Get learning goal
+    const learningGoal = await LearningGoal.findById(mission.learningGoalId);
     
-    if (!playerProfile) {
-      playerProfile = new PlayerProfile({ userId });
-      await playerProfile.save();
+    if (!learningGoal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Learning goal not found'
+      });
     }
     
-    // Update current mission
-    playerProfile.currentMission = mission._id;
-    await playerProfile.save();
-    
-    // Return mission details with first objective
     res.status(200).json({
       success: true,
       mission: {
@@ -72,12 +164,13 @@ const getMissionDetails = async (req, res) => {
         title: mission.title,
         narrative: mission.narrative,
         difficulty: mission.difficulty,
-        currentObjective: mission.objectives[0]
+        objectives: mission.objectives,
+        totalXP: mission.totalXP
       },
-      player: {
-        level: playerProfile.level,
-        xp: playerProfile.xp,
-        stats: playerProfile.stats
+      learningGoal: {
+        id: learningGoal._id,
+        title: learningGoal.title,
+        keyConcepts: learningGoal.keyConcepts
       }
     });
   } catch (error) {
@@ -91,100 +184,54 @@ const getMissionDetails = async (req, res) => {
 };
 
 /**
- * Execute a query in game mode
+ * Execute a query in mission mode
  */
 const executeMissionQuery = async (req, res) => {
   try {
     const { missionId, objectiveIndex = 0 } = req.params;
     const { query } = req.body;
     const userId = req.userId || 'anonymous';
-    const sessionId = `${userId}_${Date.now()}`;
     
-    // Get mission and objective
-    const mission = await GameMission.findById(missionId);
-    
-    if (!mission || !mission.objectives[objectiveIndex]) {
-      return res.status(404).json({
+    if (!query) {
+      return res.status(400).json({
         success: false,
-        message: 'Mission or objective not found'
+        message: 'No query provided'
       });
     }
     
-    const objective = mission.objectives[objectiveIndex];
+    // Get mission
+    const mission = await GameMission.findById(missionId);
     
-    // Execute query
-    const result = await executeQuery(query, {}, sessionId);
-    
-    // Get player profile
-    let playerProfile = await PlayerProfile.findOne({ userId });
-    
-    if (!playerProfile) {
-      playerProfile = new PlayerProfile({ userId });
+    if (!mission) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mission not found'
+      });
     }
     
-    // Update stats
-    playerProfile.stats.queriesExecuted++;
+    // Execute the query
+    const result = await executeQuery(query);
     
-    // Check for mission success
-    let missionSuccess = false;
-    let gainedXP = 0;
-    let feedback = '';
-    
-    if (result.success) {
-      // Simple success check - in reality would need more sophisticated validation
-      missionSuccess = true;
-      gainedXP = objective.xpReward;
-      feedback = "Mission accomplished! Data extraction successful.";
-      
-      // Update player profile
-      playerProfile.xp += gainedXP;
-      playerProfile.stats.successRate = (playerProfile.stats.successRate * (playerProfile.stats.queriesExecuted - 1) + 100) / playerProfile.stats.queriesExecuted;
-      
-      // Check for level up
-      if (playerProfile.xp >= playerProfile.level * 1000) {
-        playerProfile.level++;
-        feedback += ` LEVEL UP! You are now level ${playerProfile.level}!`;
-      }
-      
-      // Mark mission as completed if this was the last objective
-      if (objectiveIndex === mission.objectives.length - 1) {
-        playerProfile.completedMissions.push({
-          missionId: mission._id,
-          completionDate: new Date(),
-          score: gainedXP,
-          timeSpent: 0 // Would calculate from mission start time
-        });
-      }
-    } else {
-      feedback = "Access denied! Your query caused a security alert. Try a different approach.";
-      playerProfile.stats.successRate = (playerProfile.stats.successRate * (playerProfile.stats.queriesExecuted - 1)) / playerProfile.stats.queriesExecuted;
-    }
-    
-    await playerProfile.save();
-    
-    // Game-themed response
+    // Create a themed response
     res.status(200).json({
       terminalOutput: {
         success: result.success,
-        message: feedback,
-        xpGained: gainedXP,
+        message: result.success ? 
+          "ACCESS GRANTED: Query executed successfully." : 
+          "ACCESS DENIED: Security system detected an error.",
+        xpGained: result.success ? mission.objectives[objectiveIndex]?.xpReward || 100 : 0,
         securityLevel: result.success ? "BYPASSED" : "ALERTED",
         results: result.results,
-        errors: !result.success ? [{
+        errors: result.success ? [] : [{
           code: "SECURITY_BREACH",
-          message: result.error,
+          message: result.error || "Unknown error",
           trace: "FIREWALL_BLOCKED"
-        }] : []
-      },
-      playerStatus: {
-        level: playerProfile.level,
-        xp: playerProfile.xp,
-        nextLevelAt: playerProfile.level * 1000
+        }]
       },
       missionStatus: {
-        completed: missionSuccess,
-        nextObjective: missionSuccess && objectiveIndex < mission.objectives.length - 1 ? 
-          mission.objectives[objectiveIndex + 1] : null
+        completed: result.success,
+        nextObjective: result.success && parseInt(objectiveIndex) < mission.objectives.length - 1 ? 
+          parseInt(objectiveIndex) + 1 : null
       }
     });
   } catch (error) {
@@ -204,23 +251,31 @@ const executeMissionQuery = async (req, res) => {
 };
 
 /**
- * Get player profile and progress
+ * Get player profile
  */
 const getPlayerProfile = async (req, res) => {
   try {
     const userId = req.userId || 'anonymous';
     
-    // Get player profile
-    let playerProfile = await PlayerProfile.findOne({ userId })
-                                         .populate('completedMissions.missionId')
-                                         .populate('currentMission');
+    // Find or create player profile
+    let playerProfile = await PlayerProfile.findOne({ userId });
     
     if (!playerProfile) {
-      playerProfile = new PlayerProfile({ userId });
-      await playerProfile.save();
+      playerProfile = new PlayerProfile({
+        userId,
+        level: 1,
+        xp: 0,
+        skills: [{ name: "SQL", level: 1, xp: 0 }],
+        completedMissions: [],
+        achievements: [],
+        stats: {
+          queriesExecuted: 0,
+          successRate: 0,
+          optimizationScore: 0
+        }
+      });
       
-      // Re-fetch with populated fields
-      playerProfile = await PlayerProfile.findOne({ userId });
+      await playerProfile.save();
     }
     
     res.status(200).json({
@@ -228,23 +283,9 @@ const getPlayerProfile = async (req, res) => {
       playerProfile: {
         level: playerProfile.level,
         xp: playerProfile.xp,
-        nextLevelAt: playerProfile.level * 1000,
         skills: playerProfile.skills,
         stats: playerProfile.stats,
-        achievements: playerProfile.achievements,
-        completedMissions: playerProfile.completedMissions.map(cm => ({
-          mission: {
-            id: cm.missionId ? cm.missionId._id : null,
-            title: cm.missionId ? cm.missionId.title : 'Unknown mission'
-          },
-          completionDate: cm.completionDate,
-          score: cm.score
-        })),
-        currentMission: playerProfile.currentMission ? {
-          id: playerProfile.currentMission._id,
-          title: playerProfile.currentMission.title,
-          difficulty: playerProfile.currentMission.difficulty
-        } : null
+        completedMissions: playerProfile.completedMissions
       }
     });
   } catch (error) {

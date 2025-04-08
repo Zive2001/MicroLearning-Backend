@@ -30,49 +30,11 @@ const uploadLabSheet = async (req, res) => {
     // Process the lab sheet content
     const processedData = processLabSheet(pdfData);
     
-    // Map the exercises to the schema format
-    const exercises = processedData.exercises.map((ex, index) => {
-      const match = ex.match(/(\d+)\.(.+)/);
-      
-      if (match) {
-        const number = match[1];
-        const description = match[2].trim();
-        
-        // Try to extract sub-exercises
-        const subExMatches = description.match(/\([a-z]\)([^(]+)/g);
-        const subExercises = [];
-        
-        if (subExMatches) {
-          subExMatches.forEach(subEx => {
-            const subMatch = subEx.match(/\(([a-z])\)(.+)/);
-            if (subMatch) {
-              subExercises.push({
-                letter: subMatch[1],
-                description: subMatch[2].trim()
-              });
-            }
-          });
-        }
-        
-        return {
-          number,
-          description,
-          subExercises
-        };
-      }
-      
-      return {
-        number: String(index + 1),
-        description: ex,
-        subExercises: []
-      };
-    });
-    
-    // Create a new lab sheet in the database
+    // Create a new lab sheet in the database using the already processed exercises
     const labSheet = new LabSheet({
       labNumber: processedData.labSheetNumber,
       title: processedData.title,
-      exercises,
+      exercises: processedData.exercises, // Use the exercises directly
       originalText: processedData.rawText,
       filePath: filePath
     });

@@ -52,10 +52,8 @@ const processLabSheet = (pdfData) => {
     }
   }
   
-  // Extract exercises using a more robust approach
+  // Extract exercises
   const exercises = [];
-  
-  // Find all numbered sections (1., 2., etc.)
   const exerciseRegex = /(\d+)\.\s+(.*?)(?=\d+\.\s+|$)/gs;
   let match;
   
@@ -63,7 +61,7 @@ const processLabSheet = (pdfData) => {
     const exerciseNum = match[1];
     const exerciseContent = match[2].trim();
     
-    // Extract sub-exercises (a), (b), etc.
+    // Extract sub-exercises
     const subExercises = [];
     const subExRegex = /\(([a-z])\)\s+(.*?)(?=\([a-z]\)\s+|$)/gs;
     let subMatch;
@@ -72,13 +70,16 @@ const processLabSheet = (pdfData) => {
     while ((subMatch = subExRegex.exec(subContent)) !== null) {
       subExercises.push({
         letter: subMatch[1],
-        description: subMatch[2].trim()
+        description: subMatch[2].trim() || `Sub-exercise ${subMatch[1]}`
       });
     }
     
+    // Make sure description is never empty
+    const description = exerciseContent.split(/\([a-z]\)/)[0].trim() || `Exercise ${exerciseNum}`;
+    
     exercises.push({
       number: exerciseNum,
-      description: exerciseContent.split(/\([a-z]\)/)[0].trim(),
+      description: description,
       subExercises
     });
   }
