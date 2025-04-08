@@ -6,7 +6,7 @@ const {
   validateUserQuery,
   setupEnvironment,
   evaluateSolution,
-  setupTestEnvironment,
+  setupTestEnvironment
 } = require('../controllers/sqlPlaygroundController');
 
 // Execute a SQL query
@@ -21,6 +21,7 @@ router.get('/setup/:goalId', setupEnvironment);
 // Evaluate a solution
 router.post('/evaluate/:goalId', evaluateSolution);
 
+// Setup test environment
 router.get('/setup-test', setupTestEnvironment);
 
 module.exports = router;

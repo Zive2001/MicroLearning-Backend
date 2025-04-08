@@ -56,36 +56,41 @@ const executeQuery = async (query, bindParams = {}, sessionId = null) => {
     // Get connection from pool
     connection = await pool.getConnection();
     
-    console.log("Executing Oracle query:", query);
+    console.log("Executing Oracle script with multiple statements");
     
-    // Split into multiple statements if needed
+    // Split into multiple statements
     const statements = query.split(';').filter(stmt => stmt.trim());
     const results = [];
+    let allSuccessful = true;
     
     for (const stmt of statements) {
       if (!stmt.trim()) continue;
       
       try {
-        console.log("Executing statement:", stmt.trim());
+        // Log truncated statement for debugging
+        console.log("Executing statement:", stmt.substring(0, 100) + (stmt.length > 100 ? '...' : ''));
+        
+        // Execute with autoCommit for each statement
         const result = await connection.execute(stmt.trim(), bindParams, { autoCommit: true });
+        
         results.push({
           success: true,
-          statement: stmt.trim(),
+          statement: stmt.substring(0, 50) + (stmt.length > 50 ? '...' : ''),
           affectedRows: result.rowsAffected || 0
         });
       } catch (err) {
         console.error("Statement execution error:", err.message);
+        
         results.push({
           success: false,
           error: err.message,
           errorNum: err.errorNum,
-          statement: stmt.trim()
+          statement: stmt.substring(0, 50) + (stmt.length > 50 ? '...' : '')
         });
+        
+        allSuccessful = false;
       }
     }
-    
-    // Check overall success
-    const allSuccessful = results.every(r => r.success);
     
     return {
       success: allSuccessful,
@@ -93,7 +98,7 @@ const executeQuery = async (query, bindParams = {}, sessionId = null) => {
       message: allSuccessful ? 'All statements executed successfully' : 'Some statements failed'
     };
   } catch (error) {
-    console.error("Oracle query execution error:", error.message);
+    console.error("Oracle script execution error:", error.message);
     return {
       success: false,
       error: error.message,

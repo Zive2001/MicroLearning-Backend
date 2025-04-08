@@ -2,6 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 const { extractPdfContent, processLabSheet } = require('../services/pdf-extraction');
+const { generateMissionsFromLearningGoals } = require('../services/mission-generator');
+
 const { 
   extractKeyConcepts, 
   chunkIntoLearningGoals, 
@@ -177,6 +179,8 @@ const analyzeLabSheet = async (req, res) => {
         
         await learningGoal.save();
         createdGoals.push(learningGoal);
+
+        await generateMissionsFromLearningGoals(labSheet._id);
       }
       
       res.status(200).json({

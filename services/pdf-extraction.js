@@ -52,22 +52,24 @@ const processLabSheet = (pdfData) => {
     }
   }
   
-  // Extract exercises using a more robust pattern
-  // Looking for numbered sections like "1." followed by text
+  // Extract exercises using a more robust approach
   const exercises = [];
-  const mainExerciseRegex = /(\d+)\.\s+([\s\S]+?)(?=\d+\.\s+|$)/g;
-  let mainMatch;
   
-  while ((mainMatch = mainExerciseRegex.exec(text)) !== null) {
-    const exerciseNum = mainMatch[1];
-    const exerciseContent = mainMatch[2].trim();
+  // Find all numbered sections (1., 2., etc.)
+  const exerciseRegex = /(\d+)\.\s+(.*?)(?=\d+\.\s+|$)/gs;
+  let match;
+  
+  while ((match = exerciseRegex.exec(text)) !== null) {
+    const exerciseNum = match[1];
+    const exerciseContent = match[2].trim();
     
-    // Look for sub-exercises (a), (b), etc.
+    // Extract sub-exercises (a), (b), etc.
     const subExercises = [];
-    const subExerciseRegex = /\(([a-z])\)\s+([\s\S]+?)(?=\([a-z]\)\s+|$)/g;
+    const subExRegex = /\(([a-z])\)\s+(.*?)(?=\([a-z]\)\s+|$)/gs;
     let subMatch;
     
-    while ((subMatch = subExerciseRegex.exec(exerciseContent)) !== null) {
+    let subContent = exerciseContent;
+    while ((subMatch = subExRegex.exec(subContent)) !== null) {
       subExercises.push({
         letter: subMatch[1],
         description: subMatch[2].trim()
