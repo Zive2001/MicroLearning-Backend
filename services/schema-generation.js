@@ -1,7 +1,7 @@
 // services/schema-generation.js
 
 /**
- * Generate setup scripts for a learning goal
+ * Generate setup scripts for a learning goal specifically for Oracle
  * @param {object} goal - Learning goal object
  * @returns {Promise<Array<string>>} - Array of setup scripts
  */
@@ -17,67 +17,30 @@ const generateSetupScripts = async (goal) => {
     
     // If no code blocks found, generate basic setup based on concepts
     if (scripts.length === 0) {
-      scripts.push(...generateBasicSetup(goal));
+      scripts.push(...generateBasicOracleSetup(goal));
     }
     
     return scripts;
   };
   
   /**
- * Extract SQL code blocks from text and convert Oracle syntax to MySQL if needed
- * @param {string} text - Text containing code blocks
- * @returns {Array<string>} - Extracted code blocks
- */
-const extractCodeBlocks = (text) => {
+   * Extract SQL code blocks from text
+   * @param {string} text - Text containing code blocks
+   * @returns {Array<string>} - Extracted code blocks
+   */
+  const extractCodeBlocks = (text) => {
     const codeBlocks = [];
     const codeRegex = /```sql\s+([\s\S]+?)\s+```|```\s+([\s\S]+?)\s+```|--\s+([\s\S]+?)(?=--|$)/g;
     
     let match;
     while ((match = codeRegex.exec(text)) !== null) {
-      let code = (match[1] || match[2] || match[3]).trim();
-      
-      // Convert Oracle-specific syntax to MySQL equivalent
-      code = convertOracleToMySQL(code);
-      
+      const code = (match[1] || match[2] || match[3]).trim();
       if (isValidSqlSetup(code)) {
         codeBlocks.push(code);
       }
     }
     
     return codeBlocks;
-  };
-  
-  /**
-   * Convert Oracle syntax to MySQL equivalent
-   * @param {string} code - Oracle SQL code
-   * @returns {string} - MySQL compatible code
-   */
-  const convertOracleToMySQL = (code) => {
-    // Skip conversion if code appears to be MySQL already
-    if (code.includes('ENGINE=InnoDB') || code.includes('AUTO_INCREMENT')) {
-      return code;
-    }
-    
-    let mysqlCode = code;
-    
-    // Replace Oracle object type definitions with MySQL table equivalents
-    mysqlCode = mysqlCode.replace(/CREATE\s+(?:OR\s+REPLACE\s+)?TYPE\s+(\w+)\s+AS\s+OBJECT\s*\(([\s\S]+?)\);?/gi, 
-      (match, typeName, attributes) => {
-        // Convert to a MySQL table
-        return `CREATE TABLE IF NOT EXISTS ${typeName} (${attributes});`;
-      });
-    
-    // Replace REF type with foreign key equivalent concept
-    mysqlCode = mysqlCode.replace(/(\w+)\s+REF\s+(\w+)/gi, '$1 VARCHAR(36) /* Simulating REF $2 */');
-    
-    // Replace Oracle table of syntax
-    mysqlCode = mysqlCode.replace(/(\w+)\s+TABLE\s+OF\s+(\w+)/gi, 
-      'VARCHAR(255) /* Simulating TABLE OF $2 */');
-    
-    // Handle forward slash SQL delimiters by removing them
-    mysqlCode = mysqlCode.replace(/^\/$/gm, '');
-    
-    return mysqlCode;
   };
   
   /**
@@ -91,76 +54,109 @@ const extractCodeBlocks = (text) => {
     
     return setupKeywords.some(keyword => lowerCode.includes(keyword));
   };
+  
   /**
- * Generate basic setup scripts based on learning goal concepts
- * @param {object} goal - Learning goal object
- * @returns {Array<string>} - Generated setup scripts
- */
-const generateBasicSetup = (goal) => {
+   * Generate basic Oracle setup scripts based on learning goal concepts
+   * @param {object} goal - Learning goal object
+   * @returns {Array<string>} - Generated setup scripts
+   */
+  const generateBasicOracleSetup = (goal) => {
     const scripts = [];
     const concepts = goal.keyConcepts || [];
     
-    // Generate MySQL-compatible tables (simulating Oracle object-relational features)
+    // Generate basic Oracle object-relational model
     if (concepts.includes('Object Tables') || concepts.includes('Object Types')) {
       scripts.push(`
-        -- Basic setup for simulating object relational concepts in MySQL
-        -- This is a simplified version as MySQL doesn't support object types directly
+        -- Basic setup for object relational concepts
         
-        CREATE TABLE IF NOT EXISTS employees (
-          empno VARCHAR(6) PRIMARY KEY,
+        -- Define department type
+        CREATE OR REPLACE TYPE dept_t AS OBJECT (
+          deptno CHAR(3),
+          deptname VARCHAR(36),
+          mgrno CHAR(6),
+          admrdept REF dept_t
+        );
+        /
+        
+        -- Define employee type
+        CREATE OR REPLACE TYPE emp_t AS OBJECT (
+          empno CHAR(6),
           firstname VARCHAR(12),
           lastname VARCHAR(15),
-          workdept VARCHAR(3),
+          workdept REF dept_t,
           sex CHAR(1),
           birthdate DATE,
-          salary DECIMAL(8,2)
+          salary NUMBER(8,2)
         );
+        /
         
-        CREATE TABLE IF NOT EXISTS departments (
-          deptno VARCHAR(3) PRIMARY KEY,
-          deptname VARCHAR(36),
-          mgrno VARCHAR(6),
-          admrdept VARCHAR(3),
-          FOREIGN KEY (mgrno) REFERENCES employees(empno) ON DELETE SET NULL,
-          FOREIGN KEY (admrdept) REFERENCES departments(deptno) ON DELETE SET NULL
+        -- Create tables based on these types
+        CREATE TABLE ordept OF dept_t (
+          PRIMARY KEY (deptno)
         );
+        /
         
-        -- Add workdept foreign key after both tables exist
-        ALTER TABLE employees 
-        ADD CONSTRAINT fk_workdept 
-        FOREIGN KEY (workdept) REFERENCES departments(deptno) ON DELETE SET NULL;
+        CREATE TABLE oremp OF emp_t (
+          PRIMARY KEY (empno)
+        );
+        /
         
-        -- Sample data
-        INSERT INTO departments VALUES ('A00', 'SPIFFY COMPUTER SERVICE DIV.', '000010', 'A00');
-        INSERT INTO departments VALUES ('B01', 'PLANNING', '000020', 'A00');
-        INSERT INTO departments VALUES ('C01', 'INFORMATION CENTRE', '000030', 'A00');
-        INSERT INTO departments VALUES ('D01', 'DEVELOPMENT CENTRE', '000060', 'C01');
+        -- Insert sample data with NULL for REF types initially
+        INSERT INTO ordept VALUES ('A00', 'SPIFFY COMPUTER SERVICE DIV.', '000010', NULL);
+        INSERT INTO ordept VALUES ('B01', 'PLANNING', '000020', NULL);
+        INSERT INTO ordept VALUES ('C01', 'INFORMATION CENTRE', '000030', NULL);
+        INSERT INTO ordept VALUES ('D01', 'DEVELOPMENT CENTRE', '000060', NULL);
+        /
         
-        INSERT INTO employees VALUES ('000010', 'CHRISTINE', 'HAAS', 'A00', 'F', '1953-08-14', 72750);
-        INSERT INTO employees VALUES ('000020', 'MICHAEL', 'THOMPSON', 'B01', 'M', '1968-02-02', 61250);
-        INSERT INTO employees VALUES ('000030', 'SALLY', 'KWAN', 'C01', 'F', '1971-05-11', 58250);
+        INSERT INTO oremp VALUES ('000010', 'CHRISTINE', 'HAAS', NULL, 'F', TO_DATE('14-AUG-1953', 'DD-MON-YYYY'), 72750);
+        INSERT INTO oremp VALUES ('000020', 'MICHAEL', 'THOMPSON', NULL, 'M', TO_DATE('02-FEB-1968', 'DD-MON-YYYY'), 61250);
+        INSERT INTO oremp VALUES ('000030', 'SALLY', 'KWAN', NULL, 'F', TO_DATE('11-MAY-1971', 'DD-MON-YYYY'), 58250);
+        INSERT INTO oremp VALUES ('000060', 'IRVING', 'STERN', NULL, 'M', TO_DATE('07-JUL-1965', 'DD-MON-YYYY'), 55555);
+        /
+        
+        -- Update REF values
+        UPDATE oremp e
+        SET e.workdept = (SELECT REF(d) FROM ordept d WHERE d.deptno = 'A00')
+        WHERE e.empno = '000010';
+        
+        UPDATE oremp e
+        SET e.workdept = (SELECT REF(d) FROM ordept d WHERE d.deptno = 'B01')
+        WHERE e.empno = '000020';
+        
+        UPDATE oremp e
+        SET e.workdept = (SELECT REF(d) FROM ordept d WHERE d.deptno = 'C01')
+        WHERE e.empno = '000030';
+        
+        UPDATE oremp e
+        SET e.workdept = (SELECT REF(d) FROM ordept d WHERE d.deptno = 'D01')
+        WHERE e.empno = '000060';
+        /
+        
+        UPDATE ordept d
+        SET d.admrdept = (SELECT REF(a) FROM ordept a WHERE a.deptno = 'A00')
+        WHERE d.deptno IN ('B01', 'C01');
+        
+        UPDATE ordept d
+        SET d.admrdept = (SELECT REF(a) FROM ordept a WHERE a.deptno = 'C01')
+        WHERE d.deptno = 'D01';
+        /
       `);
     }
     
     if (concepts.includes('SQL Queries') || concepts.includes('Object Relational Queries')) {
       scripts.push(`
-        -- Views for query practice (simulating object references)
-        CREATE VIEW IF NOT EXISTS dept_emp AS
-        SELECT d.deptno, d.deptname, e.empno, e.firstname, e.lastname, e.salary
-        FROM departments d
-        JOIN employees e ON d.deptno = e.workdept;
-        
-        -- View showing department hierarchy
-        CREATE VIEW IF NOT EXISTS dept_hierarchy AS
-        SELECT d.deptno, d.deptname, d.admrdept, ad.deptname as admin_deptname
-        FROM departments d
-        JOIN departments ad ON d.admrdept = ad.deptno;
+        -- Create view for querying object data
+        CREATE OR REPLACE VIEW dept_emp AS
+        SELECT d.deptno, d.deptname, 
+               e.empno, e.firstname, e.lastname, e.salary
+        FROM ordept d, oremp e
+        WHERE DEREF(e.workdept).deptno = d.deptno;
+        /
       `);
     }
     
     return scripts;
   };
-  
   
   module.exports = {
     generateSetupScripts
