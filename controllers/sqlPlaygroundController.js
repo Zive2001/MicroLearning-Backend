@@ -162,9 +162,53 @@ const evaluateSolution = async (req, res) => {
   }
 };
 
+/**
+ * Setup test environment with hardcoded script
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+const setupTestEnvironment = async (req, res) => {
+  try {
+    const userId = req.userId || 'anonymous';
+    const sessionId = `${userId}_${Date.now()}`;
+    const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 20);
+    
+    // Simple Oracle script that should definitely work
+    const setupScript = `
+CREATE TABLE ${safeSessionId}_employees (
+  empno VARCHAR2(6) PRIMARY KEY,
+  firstname VARCHAR2(12),
+  lastname VARCHAR2(15),
+  salary NUMBER(8,2)
+);
+
+INSERT INTO ${safeSessionId}_employees VALUES ('000010', 'CHRISTINE', 'HAAS', 72750);
+INSERT INTO ${safeSessionId}_employees VALUES ('000020', 'MICHAEL', 'THOMPSON', 61250);
+    `;
+    
+    // Execute using the raw query function
+    const result = await executeQuery(setupScript);
+    
+    res.status(200).json({
+      success: result.success,
+      message: result.success ? 'Test environment setup successful' : 'Test environment setup failed',
+      result,
+      sessionId: safeSessionId
+    });
+  } catch (error) {
+    console.error('Error setting up test environment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error setting up test environment',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   executeUserQuery,
   validateUserQuery,
   setupEnvironment,
-  evaluateSolution
+  evaluateSolution,
+  setupTestEnvironment
 };

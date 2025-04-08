@@ -56,35 +56,41 @@ const executeQuery = async (query, bindParams = {}, sessionId = null) => {
     // Get connection from pool
     connection = await pool.getConnection();
     
-    // Create session context if provided
-    if (sessionId) {
-      try {
-        // Create a custom namespace for the session
-        await connection.execute(
-          `BEGIN
-             DBMS_SESSION.SET_CONTEXT('USER_CTX', 'SESSION_ID', :sessionId);
-           END;`,
-          { sessionId }
-        );
-      } catch (err) {
-        console.warn("Could not set session context:", err.message);
-      }
-    }
-
     console.log("Executing Oracle query:", query);
     
-    // Execute the query
-    const startTime = Date.now();
-    const options = { autoCommit: true };
-    const result = await connection.execute(query, bindParams, options);
-    const executionTime = Date.now() - startTime;
-
+    // Split into multiple statements if needed
+    const statements = query.split(';').filter(stmt => stmt.trim());
+    const results = [];
+    
+    for (const stmt of statements) {
+      if (!stmt.trim()) continue;
+      
+      try {
+        console.log("Executing statement:", stmt.trim());
+        const result = await connection.execute(stmt.trim(), bindParams, { autoCommit: true });
+        results.push({
+          success: true,
+          statement: stmt.trim(),
+          affectedRows: result.rowsAffected || 0
+        });
+      } catch (err) {
+        console.error("Statement execution error:", err.message);
+        results.push({
+          success: false,
+          error: err.message,
+          errorNum: err.errorNum,
+          statement: stmt.trim()
+        });
+      }
+    }
+    
+    // Check overall success
+    const allSuccessful = results.every(r => r.success);
+    
     return {
-      success: true,
-      results: result.rows || [],
-      fields: result.metaData ? result.metaData.map(col => col.name) : [],
-      affectedRows: result.rowsAffected || 0,
-      executionTime
+      success: allSuccessful,
+      results,
+      message: allSuccessful ? 'All statements executed successfully' : 'Some statements failed'
     };
   } catch (error) {
     console.error("Oracle query execution error:", error.message);
@@ -92,7 +98,6 @@ const executeQuery = async (query, bindParams = {}, sessionId = null) => {
       success: false,
       error: error.message,
       errorNum: error.errorNum,
-      offset: error.offset,
       query: query.substring(0, 100) + (query.length > 100 ? '...' : '')
     };
   } finally {
@@ -106,7 +111,6 @@ const executeQuery = async (query, bindParams = {}, sessionId = null) => {
     }
   }
 };
-
 /**
  * Execute multiple statements with commit/rollback handling
  * @param {Array<string>} statements - Array of SQL statements
